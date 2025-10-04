@@ -1349,16 +1349,21 @@ app.post(
 
             // download media (handles auth / retries)
             let mediaBuffer, contentType;
+            console.log(mediaBuffer, contentType,'mediaBuffer,contentType')
             try {
+              console.log(mediaId,'mediaaa id')
               const fetched = await fetchMetaMediaBytes(mediaId);
+              console.log(fetched,'fetched')
               mediaBuffer = fetched.buffer;
               contentType = fetched.mimeType || fetched.mime_type || (mediaObj?.mime_type || "");
+              console.log(mediaBuffer,contentType,'mediaBuffer,contentType')
             } catch (err) {
               console.error("[whatsapp-webhook] failed to download media:", prettyAxiosError(err));
               await metaSendText(from, "Sorry, I couldn't download that media. Please try sending it again.", msgId);
               continue;
             }
 
+            console.log(contentType,'contentType')
             // IMAGE handling
             if ((contentType || "").startsWith("image/") || message.image) {
               console.log("image handling",message.image);
