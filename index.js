@@ -1162,10 +1162,15 @@ async function metaSendImageUrl(toWaId, imageUrl, caption = "", contextMessageId
 
 async function fetchMetaMediaBytes(mediaId, opts = {}) {
   // opts: { maxRetries: number, retryDelayMs: number }
+  console.log('objectttttttt1111111')
   const token = process.env.META_PAGE_ACCESS_TOKEN;
+  console.log(token,'tokentokentoken')  
   const graphVersion = process.env.META_GRAPH_VERSION || "v17.0";
+  console.log(graphVersion,'graphVersiongraphVersiongraphVersion')
   const maxRetries = (opts.maxRetries != null) ? opts.maxRetries : 3;
+  console.log(maxRetries,'maxRetriesmaxRetriesmaxRetriesmaxRetries')
   const baseDelay = (opts.retryDelayMs != null) ? opts.retryDelayMs : 300; // ms
+  console.log(baseDelay,'baseDelaybaseDelaybaseDelaybaseDelay')
 
   // 1) Fetch media object (gives temporary url)
   let metaResp;
