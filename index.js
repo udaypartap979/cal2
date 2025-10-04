@@ -1298,11 +1298,14 @@ app.post(
       // Quick ack to each sender (de-duplicated)
       const ackText = "Processing your request...";
       const acked = new Set();
+      console.log("acked", acked);
       for (const t of tasks) {
+        console.log("tasks", t);
         try {
           if (t.from && !acked.has(t.from)) {
             await metaSendText(t.from, ackText, t.msgId).catch(err => console.warn("[WH] ack send failed:", err && err.message ? err.message : err));
             acked.add(t.from);
+            console.log("acked task", t.from);
           }
         } catch (e) {}
       }
@@ -1336,6 +1339,7 @@ app.post(
 
           // handle media messages
           if (message.image || message.video || message.document || message.audio) {
+            console.log("message", message);
             const mediaObj = message.image || message.video || message.document || message.audio;
             const mediaId = mediaObj?.id;
             if (!mediaId) {
@@ -1357,6 +1361,7 @@ app.post(
 
             // IMAGE handling
             if ((contentType || "").startsWith("image/") || message.image) {
+              console.log("image handling",message.image);
               try {
                 // If you want to call your internal merged analyzer directly instead of HTTP,
                 // you can call analyzeImageWithChatGPT(mediaBuffer, contentType, captionText)
@@ -1367,7 +1372,9 @@ app.post(
                 if (captionText) form.append("text", captionText);
 
                 const safeCaptionForUrl = captionText ? `?text=${encodeURIComponent(captionText)}` : "";
+                console.log("safeCaptionForUrl", safeCaptionForUrl);
                 const analyzeUrl = `${BASE_URL}/analyze-image-with-text${safeCaptionForUrl}`;
+                console.log("analyzeUrl", analyzeUrl);
                 console.log("[WH -> ANALYZE] calling analyze endpoint:", analyzeUrl);
                 console.log("[WH -> ANALYZE] form headers preview:", form.getHeaders()['content-type'] ? form.getHeaders()['content-type'].slice(0,200) : "<no content-type>");
 
