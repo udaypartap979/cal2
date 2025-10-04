@@ -1161,104 +1161,64 @@ async function metaSendImageUrl(toWaId, imageUrl, caption = "", contextMessageId
 }
 
 async function fetchMetaMediaBytes(mediaId, opts = {}) {
-  console.log("[fetchMetaMediaBytes] START for mediaId:", mediaId, "opts:", opts);
-
+  // opts: { maxRetries: number, retryDelayMs: number }
   const token = process.env.META_PAGE_ACCESS_TOKEN;
-  console.log("[fetchMetaMediaBytes] token present:", !!token, "len:", token ? token.length : "null");
-
   const graphVersion = process.env.META_GRAPH_VERSION || "v17.0";
-  console.log("[fetchMetaMediaBytes] graphVersion:", graphVersion);
-
   const maxRetries = (opts.maxRetries != null) ? opts.maxRetries : 3;
-  console.log("[fetchMetaMediaBytes] maxRetries:", maxRetries);
+  const baseDelay = (opts.retryDelayMs != null) ? opts.retryDelayMs : 300; // ms
 
-  const baseDelay = (opts.retryDelayMs != null) ? opts.retryDelayMs : 300;
-  console.log("[fetchMetaMediaBytes] baseDelay (ms):", baseDelay);
-
-  // 1) Fetch media object
+  // 1) Fetch media object (gives temporary url)
   let metaResp;
   try {
-    console.log("[fetchMetaMediaBytes] Fetching media object metadata from Graph API...");
     metaResp = await axios.get(
       `https://graph.facebook.com/${graphVersion}/${mediaId}`,
-      {
-        params: { fields: "url,mime_type", access_token: token },
-        timeout: 10_000
-      }
+      { params: { fields: "url,mime_type", access_token: token }, timeout: 10_000 }
     );
-    console.log("[fetchMetaMediaBytes] Media object fetch success. Data:", metaResp.data);
   } catch (err) {
-    console.error("[fetchMetaMediaBytes] ERROR fetching media object:", prettyAxiosError(err));
+    console.error("[fetchMetaMediaBytes] error fetching media object:", prettyAxiosError(err));
     throw err;
   }
 
   const { url, mime_type } = metaResp.data || {};
-  console.log("[fetchMetaMediaBytes] url:", url, "mime_type:", mime_type);
+  if (!url) throw new Error("Media object returned no 'url' field.");
 
-  if (!url) {
-    console.error("[fetchMetaMediaBytes] ERROR: Media object returned no url.");
-    throw new Error("Media object returned no 'url' field.");
-  }
-
-  // Helper to download media
+  // Helper to try downloading (with optional auth header)
   async function tryDownload(downloadUrl, useAuth = false) {
-    console.log(`[fetchMetaMediaBytes] tryDownload called. url=${downloadUrl}, useAuth=${useAuth}`);
     const headers = {};
-    if (useAuth) {
-      headers.Authorization = `Bearer ${token}`;
-      console.log("[fetchMetaMediaBytes] Added Authorization header.");
-    }
-    try {
-      const resp = await axios.get(downloadUrl, {
-        responseType: "arraybuffer",
-        headers,
-        timeout: 20000,
-        validateStatus: s => true
-      });
-      console.log("[fetchMetaMediaBytes] tryDownload status:", resp.status, "bytes:", resp.data ? resp.data.length : "no-data");
-      return resp;
-    } catch (err) {
-      console.error("[fetchMetaMediaBytes] tryDownload ERROR:", prettyAxiosError(err));
-      throw err;
-    }
+    if (useAuth) headers.Authorization = `Bearer ${token}`;
+    const resp = await axios.get(downloadUrl, { responseType: "arraybuffer", headers, timeout: 20000, validateStatus: s => true });
+    return resp;
   }
 
-  // 2) Retry loop
+  // 2) Try without auth first, then with auth if needed
   let attempt = 0;
   let lastError = null;
   while (attempt <= maxRetries) {
-    console.log(`[fetchMetaMediaBytes] Attempt ${attempt}/${maxRetries}...`);
-    const useAuth = attempt > 0;
-    console.log("[fetchMetaMediaBytes] useAuth:", useAuth);
-
+    const useAuth = attempt > 0; // 0 -> no auth, 1+ -> with auth (and exponential backoff)
     try {
       const resp = await tryDownload(url, useAuth);
+      // Accept 200 as success; treat 2xx as success
       if (resp.status >= 200 && resp.status < 300) {
-        console.log("[fetchMetaMediaBytes] SUCCESS download at attempt:", attempt);
-        return {
-          buffer: Buffer.from(resp.data),
-          mimeType: mime_type || "application/octet-stream"
-        };
+        return { buffer: Buffer.from(resp.data), mimeType: mime_type || "application/octet-stream" };
       }
-
+      // If 401 and we didn't use auth yet, we'll retry with auth on next loop
       lastError = { status: resp.status, data: resp.data };
-      const bodyPreview = Buffer.isBuffer(resp.data)
-        ? resp.data.toString("utf8").slice(0, 300)
-        : String(resp.data).slice(0, 300);
-      console.warn(`[fetchMetaMediaBytes] Non-200 status. attempt=${attempt}, status=${resp.status}, useAuth=${useAuth}, preview=${bodyPreview}`);
-
+      const bodyPreview = Buffer.isBuffer(resp.data) ? resp.data.toString("utf8").slice(0, 300) : String(resp.data).slice(0,300);
+      console.warn(`[fetchMetaMediaBytes] download attempt ${attempt} status=${resp.status} useAuth=${useAuth} body=${bodyPreview}`);
+      // if status is 401 and we haven't tried auth, next attempt will set useAuth=true
     } catch (err) {
       lastError = err;
-      console.warn(`[fetchMetaMediaBytes] Download failed on attempt ${attempt}. Error=`, prettyAxiosError(err));
+      console.warn(`[fetchMetaMediaBytes] download attempt ${attempt} failed: ${prettyAxiosError(err)}`);
     }
 
+    // exponential backoff
     attempt++;
     const delay = baseDelay * Math.pow(2, attempt);
-    console.log(`[fetchMetaMediaBytes] Backing off for ${delay}ms before retry...`);
-    await new Promise(r => setTimeout(r, delay));
+    await new Promise((r) => setTimeout(r, delay));
   }
 
-  console.error("[fetchMetaMediaBytes] ALL RETRIES FAILED. lastError=", lastError && (lastError.message || JSON.stringify(lastError)));
+  // all retries failed
+  console.error("[fetchMetaMediaBytes] all download attempts failed. Last error:", lastError && (lastError.message || JSON.stringify(lastError)).slice ? (lastError.message || JSON.stringify(lastError)) : String(lastError));
   throw new Error("Failed to download media after retries.");
 }
 
